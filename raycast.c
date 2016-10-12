@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            
+            /*
             // write color of object with the best intersection or black if there was none at this pixel
             if (best_t > 0 && best_t != INFINITY) {
                 pixmap[index].r = (unsigned char)(object->color[0]*MAXCOLOR);
@@ -246,6 +246,7 @@ int main(int argc, char** argv) {
                 pixmap[index].g = 0;
                 pixmap[index].b = 0;
             }
+             * */
             
             index++;
         }
