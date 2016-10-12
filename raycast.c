@@ -73,6 +73,7 @@ void read_scene(FILE*);
 void set_camera(FILE*);
 void parse_sphere(FILE*, Object*);
 void parse_plane(FILE*, Object*);
+void parse_light(FILE*, Light*);
 double sphere_intersect(double*, double*, double*, double);
 double plane_intersect(double*, double*, double*, double*);
 void skip_ws(FILE*);
@@ -88,6 +89,7 @@ int line = 1;
 
 // create arrays for storing objects and pixels
 Object** objects;
+Light** lights;
 Pixel* pixmap;
 
 // default camera
@@ -128,8 +130,9 @@ int main(int argc, char** argv) {
         exit(1);
     }
     
-    // allocate space for 128 objects
+    // allocate space for 128 objects/lights
     objects = malloc(sizeof(Object*)*129);
+    lights = malloc(sizeof(Light*)*129);
     
     read_scene(json);
     
@@ -261,7 +264,9 @@ void read_scene(FILE* json) {
                 parse_plane(json, objects[i]);
                 i++;
             } else if (strcmp(value, "light") == 0) {
-                
+                lights[j] = malloc(sizeof(Light));
+                parse_light(json, lights[j]);
+                j++;
             } else {
                 fprintf(stderr, "Error: Unknown type '%s'. (Line %d)\n", value, line);
                 exit(1);
@@ -459,6 +464,91 @@ void parse_plane(FILE* json, Object* object) {
     if (!hasposition) {
         fprintf(stderr, "Error: Plane missing 'position' field. (Line %d)\n", line);
         exit(1);
+    }
+}
+
+void parse_light(FILE* json, Light* light) {
+    int c;
+    
+    int hascolor = 0;
+    int hasposition = 0;
+    int hasdirection = 0;
+    int hasr2 = 0;
+    int hasr1 = 0;
+    int hasr0 = 0;
+    int hasa0 = 0;
+    
+    skip_ws(json);
+    
+    while(1) {
+        c = next_c(json);
+        if (c == '}') {
+            break;
+        } else if (c == ',') {
+            skip_ws(json);
+            char* key = next_string(json);
+
+            skip_ws(json);
+            expect_c(json, ':');
+            skip_ws(json);
+            
+            // set values for this light depending on what key was read and sets its 'boolean' to reflect the found field
+            if (strcmp(key, "color") == 0) {
+                double* value = next_vector(json);
+                light->color[0] = value[0];
+                light->color[1] = value[1];
+                light->color[2] = value[2];
+                hascolor = 1;
+            } else if (strcmp(key, "position") == 0) {
+                double* value = next_vector(json);
+                light->position[0] = value[0];
+                light->position[1] = value[1];
+                light->position[2] = value[2];
+                hasposition = 1;
+            } else if (strcmp(key, "direction") == 0) {
+                double* value = next_vector(json);
+                light->spotlight.direction[0] = value[0];
+                light->spotlight.direction[1] = value[1];
+                light->spotlight.direction[2] = value[2];
+                hasdirection = 1;
+            } else if (strcmp(key, "radial-a2") == 0) {
+                light->radial_a2 = next_number(json);
+                hasr2 = 1;
+            } else if (strcmp(key, "radial-a1") == 0) {
+                light->spotlight.radial_a1 = next_number(json);
+                hasr1 = 1;
+            } else if (strcmp(key, "radial-a0") == 0) {
+                light->spotlight.radial_a0 = next_number(json);
+                hasr0 = 1;
+            } else if (strcmp(key, "angular-a0") == 0) {
+                light->spotlight.angular_a0 = next_number(json);
+                hasa0 = 1;
+            } else {
+                fprintf(stderr, "Error: Unknown property '%s' for 'light'. (Line %d)\n", key, line);
+                exit(1);
+            }
+        }
+    }
+    
+    if (!hascolor) {
+        fprintf(stderr, "Error: Light missing 'color' field. (Line %d)\n", line);
+        exit(1);
+    }
+    
+    if (!hasposition) {
+        fprintf(stderr, "Error: Light missing 'position' field. (Line %d)\n", line);
+        exit(1);
+    }
+    
+    if (!hasr2) {
+        fprintf(stderr, "Error: Light missing 'radial-a2' field. (Line %d)\n", line);
+        exit(1);
+    }
+    
+    if (hascolor && hasposition && hasdirection && hasr2 && hasr1 && hasr0 && hasa0) {
+        light->kind = SPOTLIGHT;
+    } else {
+        light->kind = POINT;
     }
 }
 
