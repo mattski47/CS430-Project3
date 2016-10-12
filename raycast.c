@@ -69,6 +69,28 @@ static inline void normalize(double* v) {
     v[2] /= len;
 }
 
+typedef double* v3;
+// add vector "a" with vector "b" and puts result in vector "c"
+static inline void v3_add(v3 a, v3 b, v3 c) {
+    c[0] = a[0] + b[0];
+    c[1] = a[1] + b[1];
+    c[2] = a[2] + b[2];
+}
+
+// subtract vector "b" from vector "a" and puts result in vector "c"
+static inline void v3_subtract(v3 a, v3 b, v3 c) {
+    c[0] = a[0] - b[0];
+    c[1] = a[1] - b[1];
+    c[2] = a[2] - b[2];
+}
+
+// scale vector "a" by value "s" and puts result in vector "c"
+static inline void v3_scale(v3 a, double s, v3 c) {
+    c[0] = s * a[0];
+    c[1] = s * a[1];
+    c[2] = s * a[2];
+}
+
 void read_scene(FILE*);
 void set_camera(FILE*);
 void parse_sphere(FILE*, Object*);
@@ -144,23 +166,25 @@ int main(int argc, char** argv) {
     pixmap = malloc(sizeof(Pixel)*M*N);
     // initialize pixmap index
     int index = 0;
+    double Ro[3];
+    double Rd[3];
+    
     // got through each spot pixel by pixel to see what color it should be
     for (int y=0; y<M; y++) {
         for (int x=0; x<N; x++) {
             // ray origin
-            double Ro[3] = {cx, cy, 0};
+            Ro = {cx, cy, 0};
             // ray destination
-            double Rd[3] = {cx - (w/2) + pixwidth*(x + 0.5),
-                            cy - (h/2) + pixheight*(y + 0.5),
-                            1};
+            Rd = {cx - (w/2) + pixwidth*(x + 0.5),
+                  cy - (h/2) + pixheight*(y + 0.5),
+                  1};
             normalize(Rd);
             
+            double t = 0;
             double best_t = INFINITY;
-            Object* object;
+            Object* closest_object;
             // look for intersection of an object 
             for (int i=0; objects[i] != NULL; i++) {
-                double t = 0;
-                
                 switch (objects[i]->kind) {
                     case SPHERE:
                         t = sphere_intersect(Ro, Rd, objects[i]->position, objects[i]->sphere.radius);
@@ -176,8 +200,39 @@ int main(int argc, char** argv) {
                 // save object if it intersects closer to the camera
                 if (t > 0 && t < best_t) {
                     best_t = t;
-                    object = malloc(sizeof(Object));
-                    memcpy(object, objects[i], sizeof(Object));
+                    closest_object = malloc(sizeof(Object));
+                    memcpy(closest_object, objects[i], sizeof(Object));
+                }
+            }
+            
+            double* color = malloc(sizeof(double)*3);
+            color[0] = 0;
+            color[1] = 0;
+            color[2] = 0;
+            
+            double Ron[3];
+            double Rdn[3];
+            double temp[3];
+            for (int j=0; lights[j] != NULL; j++) {
+                v3_scale(Rd, best_t, temp);
+                v3_add(temp, Ro, Ron);
+                v3_subtract(lights[j]->position, Ron, Rdn);
+                
+                for (int k=0; objects[k] != NULL; k++) {
+                    if (objects[k] == closest_object)
+                        continue;
+                    
+                    switch (objects[k]->kind) {
+                        case SPHERE:
+                            t = sphere_intersect(Ron, Rdn, objects[k]->position, objects[k]->sphere.radius);
+                            break;
+                        case PLANE:
+                            t = plane_intersect(Ron, Rdn, objects[k]->position, objects[k]->plane.normal);
+                            break;
+                        default:
+                            fprintf(stderr, "Error: Unknown object.\n");
+                            exit(1);
+                    }
                 }
             }
             
@@ -279,6 +334,7 @@ void read_scene(FILE* json) {
                 skip_ws(json);
             } else if (c == ']') {
                 objects[i] = NULL;
+                lights[j] = NULL;
                 fclose(json);
                 return;
             } else {
@@ -287,8 +343,9 @@ void read_scene(FILE* json) {
             }
             
             // check if scene has too many objects in it
-            if (i == 129) {
+            if (i == 129 || j == 129) {
                 objects[i] = NULL;
+                lights[j] = NULL;
                 fclose(json);
                 fprintf(stderr, "Error: Too many objects in file.\n");
                 return;
