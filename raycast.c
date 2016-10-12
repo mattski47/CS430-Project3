@@ -12,9 +12,10 @@
 #include <string.h>
 #include <math.h>
 
-// define what sphere and plane are for 'kind' in 'Object'
 #define SPHERE 0
 #define PLANE 1
+#define SPOTLIGHT 0
+#define POINT 1
 #define MAXCOLOR 255
 
 // struct that stores object data
@@ -31,6 +32,21 @@ typedef struct {
         } plane;
     };
 } Object;
+
+typedef struct {
+    int kind;
+    double color[3];
+    double position[3];
+    double radial_a2;
+    union {
+        struct {
+            double direction[3];
+            double radial_a1;
+            double radial_a0;
+            double angular_a0;
+        } spotlight;
+    };
+} Light;
 
 // struct that stores color data
 typedef struct {
@@ -203,6 +219,7 @@ void read_scene(FILE* json) {
     
     // initialize object array index
     int i = 0;
+    int j = 0;
     // read all objects found in file
     while (1) {
         c = next_c(json);
@@ -229,19 +246,22 @@ void read_scene(FILE* json) {
             expect_c(json, ':');
             skip_ws(json);
             
-            // allocate space for an object
-            objects[i] = malloc(sizeof(Object));
-            
             // check what object is being read and calls a function depending on what it is
             char* value = next_string(json);
             if (strcmp(value, "camera") == 0) {
                 set_camera(json);
             } else if (strcmp(value, "sphere") == 0) {
+                // allocate space for an object
+                objects[i] = malloc(sizeof(Object));
                 parse_sphere(json, objects[i]);
                 i++;
             } else if (strcmp(value, "plane") == 0) {
+                // allocate space for an object
+                objects[i] = malloc(sizeof(Object));
                 parse_plane(json, objects[i]);
                 i++;
+            } else if (strcmp(value, "light") == 0) {
+                
             } else {
                 fprintf(stderr, "Error: Unknown type '%s'. (Line %d)\n", value, line);
                 exit(1);
