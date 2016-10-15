@@ -210,30 +210,51 @@ int main(int argc, char** argv) {
             color[1] = 0;
             color[2] = 0;
             
-            double Ron[3];
-            double Rdn[3];
-            double temp[3];
+            double* Ron;
+            double* Rdn;
+            Object* closest_shadow_object;
+            Light* current_light;
             for (int j=0; lights[j] != NULL; j++) {
-                v3_scale(Rd, best_t, temp);
-                v3_add(temp, Ro, Ron);
-                v3_subtract(lights[j]->position, Ron, Rdn);
+                current_light = lights[j];
+                v3_scale(Rd, best_t, Ron);
+                v3_add(Ron, Ro, Ron);
+                v3_subtract(current_light->position, Ron, Rdn);
+                normalize(Rdn);
                 
+                Object* current_object;
                 for (int k=0; objects[k] != NULL; k++) {
-                    if (objects[k] == closest_object)
+                    current_object = current_object;
+                    if (current_object == closest_object)
                         continue;
                     
-                    switch (objects[k]->kind) {
+                    switch (current_object->kind) {
                         case SPHERE:
-                            t = sphere_intersect(Ron, Rdn, objects[k]->position, objects[k]->sphere.radius);
+                            t = sphere_intersect(Ron, Rdn, current_object->position, current_object->sphere.radius);
                             break;
                         case PLANE:
-                            t = plane_intersect(Ron, Rdn, objects[k]->position, objects[k]->plane.normal);
+                            t = plane_intersect(Ron, Rdn, current_object->position, current_object->plane.normal);
                             break;
                         default:
                             fprintf(stderr, "Error: Unknown object.\n");
                             exit(1);
                     }
+                    
+                    if (t > 0 && t < best_t) {
+                        best_t = t;
+                        closest_shadow_object = malloc(sizeof(Object));
+                        memcpy(closest_shadow_object, current_object, sizeof(Object));
+                    }
                 }
+                
+                if (best_t == INFINITY) {
+                    double* N;
+                    if (closest_object->kind == 0) {
+                        v3_subtract(current_light->position, closest_object->position, N);
+                    } else {
+                        N = closest_object->plane.normal;
+                    }
+                }
+                
             }
             /*
             // write color of object with the best intersection or black if there was none at this pixel
