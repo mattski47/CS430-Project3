@@ -23,6 +23,8 @@ typedef struct {
     int kind;
     double color[3];
     double position[3];
+    double diffuse_color[3];
+    double specular_color[3];
     union {
         struct {
             double radius;
@@ -104,6 +106,7 @@ int next_c(FILE*);
 char* next_string(FILE*);
 double next_number(FILE*);
 double* next_vector(FILE*);
+double clamp(double);
 void output_p6(FILE*);
 
 // initialize input file line counter
@@ -249,10 +252,18 @@ int main(int argc, char** argv) {
                 if (best_t == INFINITY) {
                     double* N;
                     if (closest_object->kind == 0) {
-                        v3_subtract(current_light->position, closest_object->position, N);
+                        v3_subtract(Ron, closest_object->position, N);
                     } else {
                         N = closest_object->plane.normal;
                     }
+                    
+                    double diffuse[3] = {current_light->color[0] * current_object->diffuse_color[0],
+                                         current_light->color[1] * current_object->diffuse_color[1],
+                                         current_light->color[2] * current_object->diffuse_color[2]};
+                    
+                    double specular[3] = {current_light->color[0] * current_object->specular_color[0],
+                                          current_light->color[1] * current_object->specular_color[1],
+                                          current_light->color[2] * current_object->specular_color[2]};
                 }
                 
             }
@@ -790,6 +801,17 @@ double* next_vector(FILE* json) {
     // check for end of vector
     expect_c(json, ']');
     return v;
+}
+
+// if number is greater than 1, lower it to 1, if less than 0, raise it to 0
+double clamp(double number) {
+	// clamps number
+	if (number < 0)
+		return 0;
+	else if (number > 1)
+		return 1;
+	
+	return number;
 }
 
 // outputs data in buffer to output file
