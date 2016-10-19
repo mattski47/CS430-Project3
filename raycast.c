@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
     int pixmap_index = 0;
     
     // got through each spot pixel by pixel to see what color it should be
-    for (int y=0; y<M; y++) {
+    for (int y=M; y>0; y--) {
         for (int x=0; x<N; x++) {
             // ray origin
             double Ro[3] = {cx, cy, cz};
