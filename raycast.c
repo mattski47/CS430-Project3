@@ -96,6 +96,8 @@ static inline double v3_dot(v3 a, v3 b) {
 void read_scene(FILE*);
 double diffuse(double, double, double);
 double specular(double, double, double, double);
+double frad(double, double, double, double);
+double fang(double*, double*, double);
 void parse_camera(FILE*);
 void parse_sphere(FILE*, Object*);
 void parse_plane(FILE*, Object*);
@@ -157,29 +159,27 @@ int main(int argc, char** argv) {
     
     read_scene(json);
     
-    double cx = camera->position[0];
-    double cy = camera->position[1];
-    double cz = camera->position[2];
+    double cx = camera.position[0];
+    double cy = camera.position[1];
+    double cz = camera.position[2];
     
     // calculate pixel height, width
-    double pixheight = camera->camera.height/M;
-    double pixwidth = camera->camera.width/N;
+    double pixheight = camera.camera.height/M;
+    double pixwidth = camera.camera.width/N;
     
     // allocate space for number of pixels needed
     pixmap = malloc(sizeof(Pixel)*M*N);
     // initialize pixmap index
     int pixmap_index = 0;
-    double Ro[3];
-    double Rd[3];
     
     // got through each spot pixel by pixel to see what color it should be
     for (int y=0; y<M; y++) {
         for (int x=0; x<N; x++) {
             // ray origin
-            Ro = {cx, cy, cz};
+            double Ro[3] = {cx, cy, cz};
             // ray destination
-            Rd = {cx - (camera->camera.width/2) + pixwidth*(x + 0.5),
-                  cy - (camera->camera.height/2) + pixheight*(y + 0.5),
+            double Rd[3] = {cx - (camera.camera.width/2) + pixwidth*(x + 0.5),
+                  cy - (camera.camera.height/2) + pixheight*(y + 0.5),
                   1};
             normalize(Rd);
             
@@ -219,14 +219,16 @@ int main(int argc, char** argv) {
                 
                 v3_scale(Rd, best_t, pixel_position);
                 v3_add(pixel_position, Ro, pixel_position);
-                v3_subtract(camera->position, pixel_position, obj_to_cam);
+                v3_subtract(camera.position, pixel_position, obj_to_cam);
                 normalize(obj_to_cam);
                 
                 double N[3];
                 if (closest_object->kind == SPHERE) {
                     v3_subtract(pixel_position, closest_object->position, N);
                 } else {
-                    N = closest_object->plane.normal;
+                    N[0] = closest_object->plane.normal[0];
+                    N[1] = closest_object->plane.normal[1];
+                    N[2] = closest_object->plane.normal[2];
                 }
                 
                 double Ron[3];
@@ -240,7 +242,9 @@ int main(int argc, char** argv) {
                     v3_subtract(current_light->position, Ron, Rdn);
                     normalize(Rdn);
 
-                    double dl = sqrt(sqr(current_light[0]-pixel_position[0]) + sqr(current_light[1]-pixel_position[1]) + sqr(current_light[2]-pixel_position[2]));
+                    closest_shadow_object = NULL;
+                    
+                    double dl = sqrt(sqr(current_light->position[0]-pixel_position[0]) + sqr(current_light->position[1]-pixel_position[1]) + sqr(current_light->position[2]-pixel_position[2]));
                     
                     Object* current_object;
                     for (int k=0; objects[k] != NULL; k++) {
@@ -268,24 +272,31 @@ int main(int argc, char** argv) {
                         }
                     }
                     
-                    double R[3];
-                    v3_scale(N, 2*v3_dot(N, Rdn), R);
-                    v3_subtract(R, Rdn, R);
-                    
-                    double diffuse_component = v3_dot(N, Rdn);
-                    double specular_component = v3_dot(R, obj_to_cam);
-                    
-                    double diffuse[3] = {diffuse(current_light->light.color[0], current_object->diffuse_color[0], diffuse_component),
-                                         diffuse(current_light->light.color[1], current_object->diffuse_color[1], diffuse_component),
-                                         diffuse(current_light->light.color[2], current_object->diffuse_color[2], diffuse_component)};
-                    
-                    double specular[3] = {specular(current_light->light.color[0], current_object->specular_color[0], diffuse_component, specular_component),
-                                          specular(current_light->light.color[1], current_object->specular_color[1], diffuse_component, specular_component),
-                                          specular(current_light->light.color[2], current_object->specular_color[2], diffuse_component, specular_component)};
-                    
-                    pixmap[pixmap_index].r = clamp(color[0]);
-                    pixmap[pixmap_index].g = clamp(color[1]);
-                    pixmap[pixmap_index].b = clamp(color[2]);
+                    if (closest_shadow_object == NULL) {
+                        double R[3];
+                        v3_scale(N, 2*v3_dot(N, Rdn), R);
+                        v3_subtract(R, Rdn, R);
+
+                        double diffuse_component = v3_dot(N, Rdn);
+                        double specular_component = v3_dot(R, obj_to_cam);
+
+                        double diffuse_color[3];
+                        diffuse_color[0] = diffuse(current_light->light.color[0], current_object->diffuse_color[0], diffuse_component);
+                        diffuse_color[1] = diffuse(current_light->light.color[1], current_object->diffuse_color[1], diffuse_component);
+                        diffuse_color[2] = diffuse(current_light->light.color[2], current_object->diffuse_color[2], diffuse_component);
+
+                        double specular_color[3];
+                        specular_color[0] = specular(current_light->light.color[0], current_object->specular_color[0], diffuse_component, specular_component);
+                        specular_color[1] = specular(current_light->light.color[1], current_object->specular_color[1], diffuse_component, specular_component);
+                        specular_color[2] = specular(current_light->light.color[2], current_object->specular_color[2], diffuse_component, specular_component);
+
+                        double rad = frad(dl, current_light->light.radial_a0, current_light->light.radial_a1, current_light->light.radial_a2);
+                        double ang = fang(current_light->light.direction, Rdn, current_light->light.angular_a0);
+
+                        pixmap[pixmap_index].r = clamp(color[0] + rad * ang * (diffuse_color[0] + specular_color[0]))*255;
+                        pixmap[pixmap_index].g = clamp(color[1] + rad * ang * (diffuse_color[1] + specular_color[1]))*255;
+                        pixmap[pixmap_index].b = clamp(color[2] + rad * ang * (diffuse_color[2] + specular_color[2]))*255;
+                    }
                 }
             } else {
                 pixmap[pixmap_index].r = 0;
@@ -417,14 +428,28 @@ double specular(double light_value, double object_value, double diffuse_componen
     return 0;
 }
 
+double frad(double dl, double a0, double a1, double a2) {
+    if (dl == INFINITY)
+        return 1;
+    
+    return 1 / (sqr(a2*dl) + (a1*dl) + a0);
+}
+
+double fang(double* light_direction, double* Rd, double a0) {
+    if (light_direction[0] == 0 && light_direction[1] == 0 && light_direction[2] == 0)
+        return 1;
+    
+    return pow(v3_dot(Rd, light_direction), a0);
+}
+
 // reads camera data from json file
 void parse_camera(FILE* json) {
     int c;
     skip_ws(json);
     
-    camera->position[0] = 0;
-    camera->position[1] = 0;
-    camera->position[2] = 0;
+    camera.position[0] = 0;
+    camera.position[1] = 0;
+    camera.position[2] = 0;
     
     // checks fields in camera
     while (1) {
@@ -442,9 +467,9 @@ void parse_camera(FILE* json) {
             double value = next_number(json);
             // checks that field can be in camera and sets 'w' or 'h' if found
             if (strcmp(key, "width") == 0) {
-                camera->camera.width = value;
+                camera.camera.width = value;
             } else if (strcmp(key, "height") == 0) {
-                camera->camera.height = value;
+                camera.camera.height = value;
             } else {
                 fprintf(stderr, "Error: Unknown property '%s' for 'camera'. (Line %d)\n", key, line);
                 exit(1);
