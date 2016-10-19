@@ -562,7 +562,7 @@ void parse_sphere(FILE* json, Object* object) {
             } else if (strcmp(key, "position") == 0) {
                 double* value = next_vector(json);
                 object->position[0] = value[0];
-                object->position[1] = -value[1];
+                object->position[1] = value[1];
                 object->position[2] = value[2];
                 hasposition = 1;
             } else {
@@ -769,7 +769,7 @@ double sphere_intersect(double* Ro, double* Rd, double* C, double r) {
 // calculate the plane intersect
 double plane_intersect(double* Ro, double* Rd, double* P, double* N) {
     // dot product of normal and position to find distance 
-    double d = N[0]*P[0] + N[1]*P[1] + N[2]*P[2]; 
+    double d = -(N[0]*P[0] + N[1]*P[1] + N[2]*P[2]); 
     double t = -(N[0]*Ro[0] + N[1]*Ro[1] + N[2]*Ro[2] + d) / (N[0]*Rd[0] + N[1]*Rd[1] + N[2]*Rd[2]);
     
     // return t value if an intersect was found, otherwise return -1
