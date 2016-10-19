@@ -16,6 +16,7 @@
 #define PLANE 2
 #define LIGHT 3
 #define MAXCOLOR 255
+#define M_PI acos(-1.0)
 
 // struct that stores object data
 typedef struct {
@@ -89,6 +90,7 @@ static inline void v3_scale(v3 a, double s, v3 c) {
     c[2] = s * a[2];
 }
 
+// dot product between vector "a" and vector "b"
 static inline double v3_dot(v3 a, v3 b) {
     return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
 }
@@ -330,6 +332,14 @@ int main(int argc, char** argv) {
     output_p6(output, N, M);
     fclose(output);
     
+    for (int i=0; objects[i] != NULL; i++)
+        free(objects[i]);
+    free(objects);
+    
+    for (int i=0; lights[i] != NULL; i++)
+        free(lights[i]);
+    free(lights);
+    
     return (EXIT_SUCCESS);
 }
 
@@ -475,7 +485,7 @@ double fang(double* light_direction, double* light_to_obj, double a0, double the
     if (light_direction[0] == 0 && light_direction[1] == 0 && light_direction[2] == 0)
         return 1;
     
-    if (v3_dot(light_to_obj, light_direction) < cos(theta))
+    if (v3_dot(light_to_obj, light_direction) < (cos(theta / 180 * M_PI)) * (180 / M_PI))
         return 0;
     
     return pow(v3_dot(light_to_obj, light_direction), a0);
