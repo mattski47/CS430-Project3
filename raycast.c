@@ -89,7 +89,13 @@ static inline void v3_scale(v3 a, double s, v3 c) {
     c[2] = s * a[2];
 }
 
+static inline double v3_dot(v3 a, v3 b) {
+    return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+}
+
 void read_scene(FILE*);
+double diffuse(double, double, double);
+double specular(double, double, double, double);
 void parse_camera(FILE*);
 void parse_sphere(FILE*, Object*);
 void parse_plane(FILE*, Object*);
@@ -201,71 +207,93 @@ int main(int argc, char** argv) {
                     memcpy(closest_object, objects[i], sizeof(Object));
                 }
             }
-            
-            double* color = malloc(sizeof(double)*3);
-            color[0] = 0;
-            color[1] = 0;
-            color[2] = 0;
-            
-            double* Ron;
-            double* Rdn;
-            Object* closest_shadow_object;
-            Object* current_light;
-            for (int j=0; lights[j] != NULL; j++) {
-                current_light = lights[j];
-                v3_scale(Rd, best_t, Ron);
-                v3_add(Ron, Ro, Ron);
-                v3_subtract(current_light->position, Ron, Rdn);
-                normalize(Rdn);
                 
-                Object* current_object;
-                for (int k=0; objects[k] != NULL; k++) {
-                    current_object = current_object;
-                    if (current_object == closest_object)
-                        continue;
-                    
-                    switch (current_object->kind) {
-                        case SPHERE:
-                            t = sphere_intersect(Ron, Rdn, current_object->position, current_object->sphere.radius);
-                            break;
-                        case PLANE:
-                            t = plane_intersect(Ron, Rdn, current_object->position, current_object->plane.normal);
-                            break;
-                        default:
-                            fprintf(stderr, "Error: Unknown object.\n");
-                            exit(1);
-                    }
-                    
-                    if (t > 0 && t < best_t) {
-                        best_t = t;
-                        closest_shadow_object = malloc(sizeof(Object));
-                        memcpy(closest_shadow_object, current_object, sizeof(Object));
-                    }
-                }
+            if (best_t > 0 && best_t != INFINITY) {
+                double color[3];
+                color[0] = 0;
+                color[1] = 0;
+                color[2] = 0;
                 
-                if (best_t > 0 && best_t != INFINITY) {
-                    double* N;
-                    if (closest_object->kind == 0) {
-                        v3_subtract(Ron, closest_object->position, N);
-                    } else {
-                        N = closest_object->plane.normal;
-                    }
-                    
-                    double diffuse[3] = {current_light->light.color[0] * current_object->diffuse_color[0],
-                                         current_light->light.color[1] * current_object->diffuse_color[1],
-                                         current_light->light.color[2] * current_object->diffuse_color[2]};
-                    
-                    double specular[3] = {current_light->light.color[0] * current_object->specular_color[0],
-                                          current_light->light.color[1] * current_object->specular_color[1],
-                                          current_light->light.color[2] * current_object->specular_color[2]};
+                double pixel_position[3];
+                double obj_to_cam[3];
+                
+                v3_scale(Rd, best_t, pixel_position);
+                v3_add(pixel_position, Ro, pixel_position);
+                v3_subtract(camera->position, pixel_position, obj_to_cam);
+                normalize(obj_to_cam);
+                
+                double N[3];
+                if (closest_object->kind == SPHERE) {
+                    v3_subtract(pixel_position, closest_object->position, N);
                 } else {
-                    pixmap[pixmap_index].r = 0;
-                    pixmap[pixmap_index].g = 0;
-                    pixmap[pixmap_index].b = 0;
+                    N = closest_object->plane.normal;
                 }
                 
-                pixmap_index++;
+                double Ron[3];
+                double Rdn[3];
+                Object* closest_shadow_object;
+                Object* current_light;
+                for (int j=0; lights[j] != NULL; j++) {
+                    current_light = lights[j];
+                    v3_scale(Rd, best_t, Ron);
+                    v3_add(Ron, Ro, Ron);
+                    v3_subtract(current_light->position, Ron, Rdn);
+                    normalize(Rdn);
+
+                    double dl = sqrt(sqr(current_light[0]-pixel_position[0]) + sqr(current_light[1]-pixel_position[1]) + sqr(current_light[2]-pixel_position[2]));
+                    
+                    Object* current_object;
+                    for (int k=0; objects[k] != NULL; k++) {
+                        current_object = objects[k];
+                        if (current_object == closest_object)
+                            continue;
+                        
+                        t = 0;
+                        switch (current_object->kind) {
+                            case SPHERE:
+                                t = sphere_intersect(Ron, Rdn, current_object->position, current_object->sphere.radius);
+                                break;
+                            case PLANE:
+                                t = plane_intersect(Ron, Rdn, current_object->position, current_object->plane.normal);
+                                break;
+                            default:
+                                fprintf(stderr, "Error: Unknown object.\n");
+                                exit(1);
+                        }
+
+                        if (t > 0 && t < best_t) {
+                            best_t = t;
+                            closest_shadow_object = malloc(sizeof(Object));
+                            memcpy(closest_shadow_object, current_object, sizeof(Object));
+                        }
+                    }
+                    
+                    double R[3];
+                    v3_scale(N, 2*v3_dot(N, Rdn), R);
+                    v3_subtract(R, Rdn, R);
+                    
+                    double diffuse_component = v3_dot(N, Rdn);
+                    double specular_component = v3_dot(R, obj_to_cam);
+                    
+                    double diffuse[3] = {diffuse(current_light->light.color[0], current_object->diffuse_color[0], diffuse_component),
+                                         diffuse(current_light->light.color[1], current_object->diffuse_color[1], diffuse_component),
+                                         diffuse(current_light->light.color[2], current_object->diffuse_color[2], diffuse_component)};
+                    
+                    double specular[3] = {specular(current_light->light.color[0], current_object->specular_color[0], diffuse_component, specular_component),
+                                          specular(current_light->light.color[1], current_object->specular_color[1], diffuse_component, specular_component),
+                                          specular(current_light->light.color[2], current_object->specular_color[2], diffuse_component, specular_component)};
+                    
+                    pixmap[pixmap_index].r = clamp(color[0]);
+                    pixmap[pixmap_index].g = clamp(color[1]);
+                    pixmap[pixmap_index].b = clamp(color[2]);
+                }
+            } else {
+                pixmap[pixmap_index].r = 0;
+                pixmap[pixmap_index].g = 0;
+                pixmap[pixmap_index].b = 0;
             }
+
+            pixmap_index++;
         }
     }
     
@@ -373,6 +401,20 @@ void read_scene(FILE* json) {
             exit(1);
         }
     }
+}
+
+double diffuse(double light_value, double object_value, double diffuse_component) {
+    if (diffuse_component > 0)
+        return light_value * object_value * diffuse_component;
+    
+    return 0;
+}
+
+double specular(double light_value, double object_value, double diffuse_component, double specular_component) {
+    if (specular_component > 0 && diffuse_component > 0)
+        return light_value * object_value * pow(specular_component, 20);
+    
+    return 0;
 }
 
 // reads camera data from json file
