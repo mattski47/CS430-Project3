@@ -1,4 +1,4 @@
-# CS430-Project3
+# CS430-Project3 Illumination
 
 raycast.c
 
