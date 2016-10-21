@@ -116,7 +116,7 @@ int next_c(FILE*);
 char* next_string(FILE*);
 double next_number(FILE*);
 double* next_vector(FILE*);
-double clamp(double);
+double clamp(double, double, double);
 void output_p6(FILE*, int, int);
 
 // initialize input file line counter
@@ -339,7 +339,9 @@ void read_scene(FILE* json) {
     }
 }
 
-void illuminate(double* Rd, double* Ro, double best_t, Object* closest_object, int pixmap_index) {
+// adds lighting to the pixel found above at best_t from the object closest to the camera
+void illuminate(double* Rd, double* Ro, double closest_t, Object* closest_object, int pixmap_index) {
+    // default color to black
     double color[3];
     color[0] = 0;
     color[1] = 0;
@@ -348,11 +350,13 @@ void illuminate(double* Rd, double* Ro, double best_t, Object* closest_object, i
     double pixel_position[3];
     double obj_to_cam[3];
 
-    v3_scale(Rd, best_t, pixel_position);
+    // find position of pixel in space and get vector from it to the camera
+    v3_scale(Rd, closest_t, pixel_position);
     v3_add(pixel_position, Ro, pixel_position);
     v3_subtract(camera.position, pixel_position, obj_to_cam);
     normalize(obj_to_cam);
 
+    // find and save object normal
     double N[3];
     if (closest_object->kind == SPHERE) {
         v3_subtract(pixel_position, closest_object->position, N);
@@ -363,30 +367,37 @@ void illuminate(double* Rd, double* Ro, double best_t, Object* closest_object, i
     }
     normalize(N);
 
+    // look through light to find the ones that influence this pixel
     Light* current_light;
     for (int j=0; lights[j] != NULL; j++) {
         current_light = lights[j];
 
+        // find vector from light to the object
         double light_to_obj[3];
-        v3_scale(Rd, best_t, light_to_obj);
+        v3_scale(Rd, closest_t, light_to_obj);
         v3_add(light_to_obj, Ro, light_to_obj);
         v3_subtract(light_to_obj, current_light->position, light_to_obj);
         normalize(light_to_obj);
 
+        // find vector from the object to the light
         double obj_to_light[3];
         v3_subtract(current_light->position, pixel_position, obj_to_light);
         normalize(obj_to_light);
-
-        int shadow = 0;
-
+        
+        // find distance from the light to the object
         double dl = sqrt(sqr(pixel_position[0]-current_light->position[0]) + sqr(pixel_position[1]-current_light->position[1]) + sqr(pixel_position[2]-current_light->position[2]));
 
+        // boolean that tells if object is in a shadow
+        int in_shadow = 0;
         Object* current_object;
         for (int k=0; objects[k] != NULL; k++) {
             current_object = objects[k];
+            // skip checking for intersection with the object already being looked at
             if (compare_objects(current_object, closest_object))
                 continue;
 
+            // find new intersection between light and each object looking for one that is closer to the light 
+            // and casts a shadow on the closest object to the camera at this pixel
             double new_t = 0;
             switch (current_object->kind) {
                 case SPHERE:
@@ -400,47 +411,58 @@ void illuminate(double* Rd, double* Ro, double best_t, Object* closest_object, i
                     exit(1);
             }
 
+            // if there is a closer object to the light, then there is a shadow
             if (new_t > 0 && new_t <= dl) {
-                shadow = 1;
+                in_shadow = 1;
                 break;
             }
         }
 
-        if (shadow == 0) {
+        // if not in a shadow then modify the color of the pixel using diffuse/specular components, and the color of the light
+        if (in_shadow == 0) {
             double R[3];
             v3_scale(N, 2*v3_dot(N, light_to_obj), R);
             v3_subtract(light_to_obj, R, R);
             normalize(R);
 
+            // calculate (N*L)
             double diffuse_component = v3_dot(N, obj_to_light);
+            // calculate (R*V)
             double specular_component = v3_dot(R, obj_to_cam);
 
+            // normalize light direction
             double* ld = current_light->direction;
             normalize(ld);
 
+            // find diffuse color
             double diffuse_color[3];
             diffuse_color[0] = diffuse(current_light->color[0], closest_object->diffuse_color[0], diffuse_component);
             diffuse_color[1] = diffuse(current_light->color[1], closest_object->diffuse_color[1], diffuse_component);
             diffuse_color[2] = diffuse(current_light->color[2], closest_object->diffuse_color[2], diffuse_component);
 
+            // find specular color
             double specular_color[3];
             specular_color[0] = specular(current_light->color[0], closest_object->specular_color[0], diffuse_component, specular_component);
             specular_color[1] = specular(current_light->color[1], closest_object->specular_color[1], diffuse_component, specular_component);
             specular_color[2] = specular(current_light->color[2], closest_object->specular_color[2], diffuse_component, specular_component);
 
+            // get attenuation values
             double rad = frad(dl, current_light->radial_a0, current_light->radial_a1, current_light->radial_a2);
             double ang = fang(ld, light_to_obj, current_light->angular_a0, current_light->theta);
 
+            // modify color if pixel to reflect changes from illumination
             color[0] += rad * ang * (diffuse_color[0] + specular_color[0]);
             color[1] += rad * ang * (diffuse_color[1] + specular_color[1]);
             color[2] += rad * ang * (diffuse_color[2] + specular_color[2]);
         }
     }
-    pixmap[pixmap_index].r = (unsigned char) (clamp(color[0])*MAXCOLOR);
-    pixmap[pixmap_index].g = (unsigned char) (clamp(color[1])*MAXCOLOR);
-    pixmap[pixmap_index].b = (unsigned char) (clamp(color[2])*MAXCOLOR);
+    // save pixel to pixmap buffer
+    pixmap[pixmap_index].r = (unsigned char) (clamp(color[0], 0, 1)*MAXCOLOR);
+    pixmap[pixmap_index].g = (unsigned char) (clamp(color[1], 0, 1)*MAXCOLOR);
+    pixmap[pixmap_index].b = (unsigned char) (clamp(color[2], 0, 1)*MAXCOLOR);
 }
 
+// compares two objects based on field values because c cant compare objects directly
 int compare_objects(Object* a, Object* b) {
     if (a->kind == b->kind && 
         a->diffuse_color[0] == b->diffuse_color[0] &&
@@ -466,6 +488,7 @@ int compare_objects(Object* a, Object* b) {
     return 0;
 }
 
+// calculates diffuse component of illumination formula
 double diffuse(double light_value, double object_value, double diffuse_component) {
     if (diffuse_component > 0)
         return light_value * object_value * diffuse_component;
@@ -473,6 +496,7 @@ double diffuse(double light_value, double object_value, double diffuse_component
     return 0;
 }
 
+// calculates specular component of illumination formula
 double specular(double light_value, double object_value, double diffuse_component, double specular_component) {
     if (specular_component > 0 && diffuse_component > 0)
         return light_value * object_value * pow(specular_component, 20);
@@ -480,6 +504,7 @@ double specular(double light_value, double object_value, double diffuse_componen
     return 0;
 }
 
+// calculates radial attenuation
 double frad(double dl, double a0, double a1, double a2) {
     if (dl == INFINITY)
         return 1;
@@ -487,6 +512,7 @@ double frad(double dl, double a0, double a1, double a2) {
     return 1 / (a2*sqr(dl) + (a1*dl) + a0);
 }
 
+// calculates angular attenuation
 double fang(double* light_direction, double* light_to_obj, double a0, double theta) {
     if (light_direction[0] == 0 && light_direction[1] == 0 && light_direction[2] == 0)
         return 1;
@@ -678,15 +704,18 @@ void parse_plane(FILE* json, Object* object) {
     }
 }
 
+// gets light information and stores it into a light object
 void parse_light(FILE* json, Light* light) {
     int c;
     
+    // used to check that all fields for a light are present
     int hascolor = 0;
     int hasposition = 0;
     int hasr2 = 0;
     int hasr1 = 0;
     int hasr0 = 0;
     
+    // default theta to 0, gets changed later if one is found
     light->theta = 0;
     
     skip_ws(json);
@@ -741,6 +770,7 @@ void parse_light(FILE* json, Light* light) {
         }
     }
     
+    // check for missing fields
     if (!hascolor) {
         fprintf(stderr, "Error: Light missing 'color' field. (Line %d)\n", line);
         exit(1);
@@ -918,14 +948,14 @@ double* next_vector(FILE* json) {
     return v;
 }
 
-// if number is greater than 1, lower it to 1, if less than 0, raise it to 0
-double clamp(double number) {
+// if number is greater than max, lower it to max, if less than min, raise it to min
+double clamp(double number, double min, double max) {
 	// clamps number
-	if (number < 0)
-		return 0;
+	if (number < min)
+		return min;
         
-	if (number > 1)
-		return 1;
+	if (number > max)
+		return max;
 	
 	return number;
 }
